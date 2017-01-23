@@ -1,0 +1,857 @@
+package main
+
+import (
+	"encoding/base64"
+	"fmt"
+	"io/ioutil"
+	"strings"
+
+	"github.com/cloud-ca/go-cloudca"
+	"github.com/docker/machine/libmachine/drivers"
+	"github.com/docker/machine/libmachine/log"
+	"github.com/docker/machine/libmachine/mcnflag"
+	"github.com/docker/machine/libmachine/ssh"
+	"github.com/docker/machine/libmachine/state"
+)
+
+const (
+	driverName = "cloudca"
+	dockerPort = 2376
+	swarmPort  = 3376
+)
+
+type configError struct {
+	option string
+}
+
+func (e *configError) Error() string {
+	return fmt.Sprintf("cloudca driver requires the --cloudca-%s option", e.option)
+}
+
+type Driver struct {
+	*drivers.BaseDriver
+	Id                   string
+	APIURL               string
+	APIKey               string
+	ServiceCode          string
+	EnvironmentName      string
+	UsePrivateIP         bool
+	UsePortForward       bool
+	PublicIP             string
+	PublicIPID           string
+	DisassociatePublicIP bool
+	SSHKeyPair           string
+	PrivateIP            string
+	Purge                bool
+	Template             string
+	TemplateID           string
+	ComputeOffering      string
+	ComputeOfferingID    string
+	Network              string
+	NetworkID            string
+	Zone                 string
+	ZoneID               string
+	UserDataFile         string
+	UserData             string
+}
+
+// GetCreateFlags registers the flags this driver adds to
+// "docker hosts create"
+func (d *Driver) GetCreateFlags() []mcnflag.Flag {
+	return []mcnflag.Flag{
+		mcnflag.StringFlag{
+			Name:   "cloudca-api-url",
+			Usage:  "cloud.ca API URL",
+			EnvVar: "CLOUDCA_API_URL",
+		},
+		mcnflag.StringFlag{
+			Name:   "cloudca-api-key",
+			Usage:  "cloud.ca API key",
+			EnvVar: "CLOUDCA_API_KEY",
+		},
+		mcnflag.StringFlag{
+			Name:   "cloudca-service-code",
+			Usage:  "cloud.ca service code",
+			EnvVar: "CLOUDCA_SERVICE_CODE",
+		},
+		mcnflag.StringFlag{
+			Name:   "cloudca-environment-name",
+			Usage:  "cloud.ca environment name",
+			EnvVar: "CLOUDCA_ENVIRONMENT_NAME",
+		},
+		mcnflag.BoolFlag{
+			Name:  "cloudca-use-private-address",
+			Usage: "Use a private IP to access the machine",
+		},
+		mcnflag.BoolFlag{
+			Name:  "cloudca-use-port-forward",
+			Usage: "Use port forwarding rule to access the machine",
+		},
+		mcnflag.StringFlag{
+			Name:  "cloudca-public-ip",
+			Usage: "cloud.ca Public IP",
+		},
+		mcnflag.StringFlag{
+			Name:  "cloudca-ssh-user",
+			Usage: "cloud.ca SSH user",
+			Value: "cca-user",
+		},
+		mcnflag.BoolFlag{
+			Name:  "cloudca-purge",
+			Usage: "Whether or not to purge the machine upon removal",
+		},
+		mcnflag.StringFlag{
+			Name:  "cloudca-template",
+			Usage: "cloud.ca template",
+		},
+		mcnflag.StringFlag{
+			Name:  "cloudca-compute-offering",
+			Usage: "cloud.ca compute offering",
+		},
+		mcnflag.StringFlag{
+			Name:  "cloudca-network",
+			Usage: "cloud.ca network",
+		},
+		mcnflag.StringFlag{
+			Name:  "cloudca-zone",
+			Usage: "cloud.ca zone",
+		},
+		mcnflag.StringFlag{
+			Name:  "cloudca-userdata-file",
+			Usage: "cloud.ca Userdata file",
+		},
+	}
+}
+
+func NewDriver(hostName, storePath string) drivers.Driver {
+
+	driver := &Driver{
+		BaseDriver: &drivers.BaseDriver{
+			MachineName: hostName,
+			StorePath:   storePath,
+		},
+	}
+	return driver
+}
+
+// DriverName returns the name of the driver as it is registered
+func (d *Driver) DriverName() string {
+	return driverName
+}
+
+func (d *Driver) GetSSHHostname() (string, error) {
+	return d.GetIP()
+}
+
+func (d *Driver) GetSSHUsername() string {
+	if d.SSHUser == "" {
+		d.SSHUser = "cca-user"
+	}
+	return d.SSHUser
+}
+
+// SetConfigFromFlags configures the driver with the object that was returned
+// by RegisterCreateFlags
+func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
+	d.APIURL = flags.String("cloudca-api-url")
+	d.APIKey = flags.String("cloudca-api-key")
+	d.ServiceCode = flags.String("cloudca-service-code")
+	d.EnvironmentName = flags.String("cloudca-environment-name")
+	d.UsePrivateIP = flags.Bool("cloudca-use-private-address")
+	d.UsePortForward = flags.Bool("cloudca-use-port-forward")
+	d.SSHUser = flags.String("cloudca-ssh-user")
+	d.Purge = flags.Bool("cloudca-purge")
+
+	if err := d.setZone(flags.String("cloudca-zone")); err != nil {
+		return err
+	}
+	if err := d.setTemplate(flags.String("cloudca-template")); err != nil {
+		return err
+	}
+	if err := d.setComputeOffering(flags.String("cloudca-compute-offering")); err != nil {
+		return err
+	}
+	if err := d.setNetwork(flags.String("cloudca-network")); err != nil {
+		return err
+	}
+	if err := d.setPublicIP(flags.String("cloudca-public-ip")); err != nil {
+		return err
+	}
+	if err := d.setUserData(flags.String("cloudca-userdata-file")); err != nil {
+		return err
+	}
+
+	d.SwarmMaster = flags.Bool("swarm-master")
+	d.SwarmDiscovery = flags.String("swarm-discovery")
+
+	d.SSHKeyPair = d.MachineName
+
+	if d.APIURL == "" {
+		return &configError{option: "api-url"}
+	}
+
+	if d.APIKey == "" {
+		return &configError{option: "api-key"}
+	}
+
+	if d.ServiceCode == "" {
+		return &configError{option: "service-code"}
+	}
+
+	if d.EnvironmentName == "" {
+		return &configError{option: "environment-name"}
+	}
+
+	if d.Template == "" {
+		return &configError{option: "template"}
+	}
+
+	if d.ComputeOffering == "" {
+		return &configError{option: "compute-offering"}
+	}
+
+	if d.Zone == "" {
+		return &configError{option: "zone"}
+	}
+
+	d.DisassociatePublicIP = false
+
+	return nil
+}
+
+// GetURL returns a Docker compatible host URL for connecting to this host
+// e.g. tcp://1.2.3.4:2376
+func (d *Driver) GetURL() (string, error) {
+	ip, err := d.GetIP()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("tcp://%s:%d", ip, dockerPort), nil
+}
+
+// GetIP returns the IP that this host is available at
+func (d *Driver) GetIP() (string, error) {
+	if d.UsePrivateIP {
+		return d.PrivateIP, nil
+	}
+	return d.PublicIP, nil
+}
+
+// GetState returns the state that the host is in (running, stopped, etc)
+func (d *Driver) GetState() (state.State, error) {
+	cs := d.getClient()
+	vm, count, err := cs.VirtualMachine.GetVirtualMachineByID(d.Id)
+	if err != nil {
+		return state.Error, err
+	}
+
+	if count == 0 {
+		return state.None, fmt.Errorf("Machine does not exist, use create command to create it")
+	}
+
+	switch vm.State {
+	case "Starting":
+		return state.Starting, nil
+	case "Running":
+		return state.Running, nil
+	case "Stopping":
+		return state.Running, nil
+	case "Stopped":
+		return state.Stopped, nil
+	case "Destroyed":
+		return state.Stopped, nil
+	case "Expunging":
+		return state.Stopped, nil
+	case "Migrating":
+		return state.Paused, nil
+	case "Error":
+		return state.Error, nil
+	case "Unknown":
+		return state.Error, nil
+	case "Shutdowned":
+		return state.Stopped, nil
+	}
+
+	return state.None, nil
+}
+
+// PreCreate allows for pre-create operations to make sure a driver is ready for creation
+func (d *Driver) PreCreateCheck() error {
+
+	if err := d.checkKeyPair(); err != nil {
+		return err
+	}
+
+	if err := d.checkInstance(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Create a host using the driver's config
+func (d *Driver) Create() error {
+	cs := d.getClient()
+
+	if err := d.createKeyPair(); err != nil {
+		return err
+	}
+
+	p := cs.VirtualMachine.NewDeployVirtualMachineParams(
+		d.ServiceOfferingID, d.TemplateID, d.ZoneID)
+	p.SetName(d.MachineName)
+	p.SetDisplayname(d.MachineName)
+	p.SetKeypair(d.SSHKeyPair)
+
+	if d.UserData != "" {
+		p.SetUserdata(d.UserData)
+	}
+
+	if d.NetworkID != "" {
+		p.SetNetworkids([]string{d.NetworkID})
+	}
+
+	if d.NetworkType == "Basic" {
+		if err := d.createSecurityGroup(); err != nil {
+			return err
+		}
+		p.SetSecuritygroupnames([]string{d.MachineName})
+	}
+
+	// Create the machine
+	log.Info("Creating CloudStack instance...")
+	vm, err := cs.VirtualMachine.DeployVirtualMachine(p)
+	if err != nil {
+		return err
+	}
+
+	d.Id = vm.Id
+
+	d.PrivateIP = vm.Nic[0].Ipaddress
+	if d.NetworkType == "Basic" {
+		d.PublicIP = d.PrivateIP
+	}
+
+	if d.NetworkType == "Advanced" && !d.UsePrivateIP {
+		if d.PublicIPID == "" {
+			if err := d.associatePublicIP(); err != nil {
+				return err
+			}
+		}
+
+		if err := d.configureFirewallRules(); err != nil {
+			return err
+		}
+
+		if d.UsePortForward {
+			if err := d.configurePortForwardingRules(); err != nil {
+				return err
+			}
+		} else {
+			if err := d.enableStaticNat(); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// Remove a host
+func (d *Driver) Remove() error {
+	cs := d.getClient()
+	p := cs.VirtualMachine.NewDestroyVirtualMachineParams(d.Id)
+	p.SetExpunge(d.Expunge)
+
+	if err := d.deleteFirewallRules(); err != nil {
+		return err
+	}
+
+	if err := d.disassociatePublicIP(); err != nil {
+		return err
+	}
+
+	log.Info("Removing CloudStack instance...")
+	if _, err := cs.VirtualMachine.DestroyVirtualMachine(p); err != nil {
+		return err
+	}
+	if d.NetworkType == "Basic" {
+		if err := d.deleteSecurityGroup(); err != nil {
+			return err
+		}
+	}
+
+	if err := d.deleteKeyPair(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Start a host
+func (d *Driver) Start() error {
+	vmstate, err := d.GetState()
+	if err != nil {
+		return err
+	}
+
+	if vmstate == state.Running {
+		log.Info("Machine is already running")
+		return nil
+	}
+
+	if vmstate == state.Starting {
+		log.Info("Machine is already starting")
+		return nil
+	}
+
+	cs := d.getClient()
+	p := cs.VirtualMachine.NewStartVirtualMachineParams(d.Id)
+
+	if _, err = cs.VirtualMachine.StartVirtualMachine(p); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Stop a host gracefully
+func (d *Driver) Stop() error {
+	vmstate, err := d.GetState()
+	if err != nil {
+		return err
+	}
+
+	if vmstate == state.Stopped {
+		log.Info("Machine is already stopped")
+		return nil
+	}
+
+	cs := d.getClient()
+	p := cs.VirtualMachine.NewStopVirtualMachineParams(d.Id)
+
+	if _, err = cs.VirtualMachine.StopVirtualMachine(p); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Restart a host.
+func (d *Driver) Restart() error {
+	vmstate, err := d.GetState()
+	if err != nil {
+		return err
+	}
+
+	if vmstate == state.Stopped {
+		return fmt.Errorf("Machine is stopped, use start command to start it")
+	}
+
+	cs := d.getClient()
+	p := cs.VirtualMachine.NewRebootVirtualMachineParams(d.Id)
+
+	if _, err = cs.VirtualMachine.RebootVirtualMachine(p); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Kill stops a host forcefully
+func (d *Driver) Kill() error {
+	return d.Stop()
+}
+
+func (d *Driver) getClient() *cca.CcaClient {
+	return cca.NewCcaClientWithURL(d.APIURL, d.APIKey), nil
+}
+
+func (d *Driver) setZone(zone string) error {
+	d.Zone = zone
+	d.ZoneID = ""
+
+	if d.Zone == "" {
+		return nil
+	}
+
+	cca := d.getClient()
+	z, _, err := cs.Zone.GetZoneByName(d.Zone)
+	if err != nil {
+		return fmt.Errorf("Unable to get zone: %v", err)
+	}
+
+	d.ZoneID = z.Id
+	d.NetworkType = z.Networktype
+
+	log.Debugf("zone: %q", d.Zone)
+	log.Debugf("zone id: %q", d.ZoneID)
+	log.Debugf("network type: %q", d.NetworkType)
+
+	return nil
+}
+
+func (d *Driver) setTemplate(template string) error {
+	d.Template = template
+	d.TemplateID = ""
+
+	if d.Template == "" {
+		return nil
+	}
+
+	if d.ZoneID == "" {
+		return fmt.Errorf("Unable to get template id: zone is not set")
+	}
+
+	cs := d.getClient()
+	templateid, err := cs.Template.GetTemplateID(d.Template, "executable", d.ZoneID)
+	if err != nil {
+		return fmt.Errorf("Unable to get template id: %v", err)
+	}
+
+	d.TemplateID = templateid
+	log.Debugf("template id: %q", d.TemplateID)
+
+	return nil
+}
+
+func (d *Driver) setServiceOffering(serviceoffering string) error {
+	d.ServiceOffering = serviceoffering
+	d.ServiceOfferingID = ""
+
+	if d.ServiceOffering == "" {
+		return nil
+	}
+
+	cs := d.getClient()
+	serviceofferingid, err := cs.ServiceOffering.GetServiceOfferingID(d.ServiceOffering)
+	if err != nil {
+		return fmt.Errorf("Unable to get service offering id: %v", err)
+	}
+
+	d.ServiceOfferingID = serviceofferingid
+
+	log.Debugf("service offering id: %q", d.ServiceOfferingID)
+
+	return nil
+}
+
+func (d *Driver) setNetwork(network string) error {
+	d.Network = network
+	d.NetworkID = ""
+
+	if d.Network == "" {
+		return nil
+	}
+
+	cs := d.getClient()
+	networkid, err := cs.Network.GetNetworkID(d.Network)
+	if err != nil {
+		return fmt.Errorf("Unable to get network id: %v", err)
+	}
+
+	d.NetworkID = networkid
+
+	log.Debugf("network id: %q", d.NetworkID)
+
+	return nil
+}
+
+func (d *Driver) setPublicIP(publicip string) error {
+	d.PublicIP = publicip
+	d.PublicIPID = ""
+
+	if d.PublicIP == "" {
+		return nil
+	}
+
+	cs := d.getClient()
+	p := cs.Address.NewListPublicIpAddressesParams()
+	p.SetIpaddress(d.PublicIP)
+	ips, err := cs.Address.ListPublicIpAddresses(p)
+	if err != nil {
+		return fmt.Errorf("Unable to get public ip id: %s", err)
+	}
+	if ips.Count < 1 {
+		return fmt.Errorf("Unable to get public ip id: Not Found %s", d.PublicIP)
+	}
+
+	d.PublicIPID = ips.PublicIpAddresses[0].Id
+
+	log.Debugf("public ip id: %q", d.PublicIPID)
+
+	return nil
+}
+
+func (d *Driver) setUserData(userDataFile string) error {
+	d.UserDataFile = userDataFile
+
+	if d.UserDataFile == "" {
+		return nil
+	}
+
+	data, err := ioutil.ReadFile(d.UserDataFile)
+	if err != nil {
+		return fmt.Errorf("Failed to read user data file: %s", err)
+	}
+
+	d.UserData = base64.StdEncoding.EncodeToString(data)
+
+	return nil
+}
+
+func (d *Driver) checkKeyPair() error {
+	cs := d.getClient()
+
+	log.Infof("Checking if SSH key pair (%v) already exists...", d.SSHKeyPair)
+
+	p := cs.SSH.NewListSSHKeyPairsParams()
+	p.SetName(d.SSHKeyPair)
+	res, err := cs.SSH.ListSSHKeyPairs(p)
+	if err != nil {
+		return err
+	}
+	if res.Count > 0 {
+		return fmt.Errorf("SSH key pair (%v) already exists.", d.SSHKeyPair)
+	}
+	return nil
+}
+
+func (d *Driver) checkInstance() error {
+	cs := d.getClient()
+
+	log.Infof("Checking if instance (%v) already exists...", d.MachineName)
+
+	p := cs.VirtualMachine.NewListVirtualMachinesParams()
+	p.SetName(d.MachineName)
+	p.SetZoneid(d.ZoneID)
+	res, err := cs.VirtualMachine.ListVirtualMachines(p)
+	if err != nil {
+		return err
+	}
+	if res.Count > 0 {
+		return fmt.Errorf("Instance (%v) already exists.", d.SSHKeyPair)
+	}
+	return nil
+}
+
+func (d *Driver) createKeyPair() error {
+	cs := d.getClient()
+
+	if err := ssh.GenerateSSHKey(d.GetSSHKeyPath()); err != nil {
+		return err
+	}
+
+	publicKey, err := ioutil.ReadFile(d.GetSSHKeyPath() + ".pub")
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Registering SSH key pair...")
+
+	p := cs.SSH.NewRegisterSSHKeyPairParams(d.SSHKeyPair, string(publicKey))
+	if _, err := cs.SSH.RegisterSSHKeyPair(p); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *Driver) deleteKeyPair() error {
+	cs := d.getClient()
+
+	log.Infof("Deleting SSH key pair...")
+
+	p := cs.SSH.NewDeleteSSHKeyPairParams(d.SSHKeyPair)
+	if _, err := cs.SSH.DeleteSSHKeyPair(p); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (d *Driver) associatePublicIP() error {
+	cs := d.getClient()
+	log.Infof("Associating public ip address...")
+	p := cs.Address.NewAssociateIpAddressParams()
+	p.SetZoneid(d.ZoneID)
+	if d.NetworkID != "" {
+		p.SetNetworkid(d.NetworkID)
+	}
+	ip, err := cs.Address.AssociateIpAddress(p)
+	if err != nil {
+		return err
+	}
+	d.PublicIP = ip.Ipaddress
+	d.PublicIPID = ip.Id
+	d.DisassociatePublicIP = true
+
+	return nil
+}
+
+func (d *Driver) disassociatePublicIP() error {
+	if !d.DisassociatePublicIP {
+		return nil
+	}
+
+	cs := d.getClient()
+	log.Infof("Disassociating public ip address...")
+	p := cs.Address.NewDisassociateIpAddressParams(d.PublicIPID)
+	if _, err := cs.Address.DisassociateIpAddress(p); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *Driver) enableStaticNat() error {
+	cs := d.getClient()
+	log.Infof("Enabling Static Nat...")
+	p := cs.NAT.NewEnableStaticNatParams(d.PublicIPID, d.Id)
+	if _, err := cs.NAT.EnableStaticNat(p); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *Driver) configureFirewallRule(publicPort, privatePort int) error {
+	cs := d.getClient()
+
+	log.Debugf("Creating firewall rule ... : cidr list: %v, port %d", d.CIDRList, publicPort)
+	p := cs.Firewall.NewCreateFirewallRuleParams(d.PublicIPID, "tcp")
+	p.SetCidrlist(d.CIDRList)
+	p.SetStartport(publicPort)
+	p.SetEndport(publicPort)
+	rule, err := cs.Firewall.CreateFirewallRule(p)
+	if err != nil {
+		// If the error reports the port is already open, just ignore.
+		if !strings.Contains(err.Error(), fmt.Sprintf(
+			"The range specified, %d-%d, conflicts with rule", publicPort, publicPort)) {
+			return err
+		}
+	} else {
+		d.FirewallRuleIds = append(d.FirewallRuleIds, rule.Id)
+	}
+
+	return nil
+}
+
+func (d *Driver) configurePortForwardingRule(publicPort, privatePort int) error {
+	cs := d.getClient()
+
+	log.Debugf("Creating port forwarding rule ... : cidr list: %v, port %d", d.CIDRList, publicPort)
+	p := cs.Firewall.NewCreatePortForwardingRuleParams(
+		d.PublicIPID, privatePort, "tcp", publicPort, d.Id)
+	p.SetOpenfirewall(false)
+	if _, err := cs.Firewall.CreatePortForwardingRule(p); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *Driver) configureFirewallRules() error {
+	log.Info("Creating firewall rule for ssh port ...")
+
+	if err := d.configureFirewallRule(22, 22); err != nil {
+		return err
+	}
+
+	log.Info("Creating firewall rule for docker port ...")
+	if err := d.configureFirewallRule(dockerPort, dockerPort); err != nil {
+		return err
+	}
+
+	if d.SwarmMaster {
+		log.Info("Creating firewall rule for swarm port ...")
+		if err := d.configureFirewallRule(swarmPort, swarmPort); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (d *Driver) deleteFirewallRules() error {
+	if len(d.FirewallRuleIds) > 0 {
+		log.Info("Removing firewall rules...")
+		for _, id := range d.FirewallRuleIds {
+			cs := d.getClient()
+			f := cs.Firewall.NewDeleteFirewallRuleParams(id)
+			if _, err := cs.Firewall.DeleteFirewallRule(f); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (d *Driver) configurePortForwardingRules() error {
+	log.Info("Creating port forwarding rule for ssh port ...")
+
+	if err := d.configurePortForwardingRule(22, 22); err != nil {
+		return err
+	}
+
+	log.Info("Creating port forwarding rule for docker port ...")
+	if err := d.configurePortForwardingRule(dockerPort, dockerPort); err != nil {
+		return err
+	}
+
+	if d.SwarmMaster {
+		log.Info("Creating port forwarding rule for swarm port ...")
+		if err := d.configurePortForwardingRule(swarmPort, swarmPort); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (d *Driver) createSecurityGroup() error {
+	log.Debugf("Creating security group ...")
+	cs := d.getClient()
+
+	p1 := cs.SecurityGroup.NewCreateSecurityGroupParams(d.MachineName)
+	if _, err := cs.SecurityGroup.CreateSecurityGroup(p1); err != nil {
+		return err
+	}
+
+	p2 := cs.SecurityGroup.NewAuthorizeSecurityGroupIngressParams()
+	p2.SetSecuritygroupname(d.MachineName)
+	p2.SetProtocol("tcp")
+	p2.SetCidrlist(d.CIDRList)
+
+	p2.SetStartport(22)
+	p2.SetEndport(22)
+	if _, err := cs.SecurityGroup.AuthorizeSecurityGroupIngress(p2); err != nil {
+		return err
+	}
+
+	p2.SetStartport(dockerPort)
+	p2.SetEndport(dockerPort)
+	if _, err := cs.SecurityGroup.AuthorizeSecurityGroupIngress(p2); err != nil {
+		return err
+	}
+
+	if d.SwarmMaster {
+		p2.SetStartport(swarmPort)
+		p2.SetEndport(swarmPort)
+		if _, err := cs.SecurityGroup.AuthorizeSecurityGroupIngress(p2); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *Driver) deleteSecurityGroup() error {
+	log.Debugf("Deleting security group ...")
+	cs := d.getClient()
+
+	p := cs.SecurityGroup.NewDeleteSecurityGroupParams()
+	p.SetName(d.MachineName)
+	if _, err := cs.SecurityGroup.DeleteSecurityGroup(p); err != nil {
+		return err
+	}
+	return nil
+}
