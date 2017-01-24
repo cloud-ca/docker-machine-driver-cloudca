@@ -1,5 +1,5 @@
 hash: 4f2ffc66945fd9c1ebfbf976b042bbcb1c7c878cd27f26ae2c73f9c3710439ab
-updated: 2017-01-24T09:02:18.025267974-05:00
+updated: 2017-01-24T10:46:42.194675024-05:00
 imports:
 - name: github.com/cloud-ca/go-cloudca
   version: ee9b9223cc3ddaad9b2e7e18031367b69437508a
@@ -16,11 +16,15 @@ imports:
   version: 15fd4c70403bab784d91031af02d9e169ce66412
   subpackages:
   - libmachine/drivers
+  - libmachine/drivers/plugin
+  - libmachine/drivers/plugin/localbinary
+  - libmachine/drivers/rpc
   - libmachine/log
   - libmachine/mcnflag
   - libmachine/mcnutils
   - libmachine/ssh
   - libmachine/state
+  - libmachine/version
   - version
 - name: golang.org/x/crypto
   version: beef0f4390813b96e8e68fd78570396d0f4751fc

@@ -397,6 +397,8 @@ func (d *Driver) setTemplate(template string) error {
 	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
 	ccaResources := resources.(cloudca.Resources)
 
+	log.Debugf("resources: %v", resources)
+
 	templates, err := ccaResources.Templates.List()
 	if err != nil {
 		return fmt.Errorf("Unable to list templates: %v", err)

@@ -5,8 +5,12 @@ init:
 	curl https://glide.sh/get | sh
 	glide install
 
-build:
-	go build .
+build: clean
+	glide up
+	GOGC=off go build -i -o ./bin/docker-machine-driver-cloudca ./bin
+
+install: build
+	cp ./bin/docker-machine-driver-cloudca $(GOPATH)/bin/
 
 build-all:
 	# compile for all OS/Arch using Gox
@@ -27,6 +31,6 @@ build-all:
 	done
 
 clean:
-	rm -rf dist docker-machine-cloudca
+	rm -rf dist bin/docker-machine-driver-cloudca
 
-.PHONY: init build build-all clean
+.PHONY: init build install build-all clean
