@@ -1,0 +1,12 @@
+package: github.com/cloud-ca/docker-machine-driver-cloudca
+import:
+- package: github.com/cloud-ca/go-cloudca
+  subpackages:
+  - services/cloudca
+- package: github.com/docker/machine
+  version: ^0.9.0
+  subpackages:
+  - libmachine/drivers
+  - libmachine/log
+  - libmachine/mcnflag
+  - libmachine/state

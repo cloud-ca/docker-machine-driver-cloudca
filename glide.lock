@@ -1,0 +1,31 @@
+hash: 4f2ffc66945fd9c1ebfbf976b042bbcb1c7c878cd27f26ae2c73f9c3710439ab
+updated: 2017-01-24T09:02:18.025267974-05:00
+imports:
+- name: github.com/cloud-ca/go-cloudca
+  version: ee9b9223cc3ddaad9b2e7e18031367b69437508a
+  subpackages:
+  - api
+  - configuration
+  - services
+  - services/cloudca
+- name: github.com/docker/docker
+  version: a8a31eff10544860d2188dddabdee4d727545796
+  subpackages:
+  - pkg/term
+- name: github.com/docker/machine
+  version: 15fd4c70403bab784d91031af02d9e169ce66412
+  subpackages:
+  - libmachine/drivers
+  - libmachine/log
+  - libmachine/mcnflag
+  - libmachine/mcnutils
+  - libmachine/ssh
+  - libmachine/state
+  - version
+- name: golang.org/x/crypto
+  version: beef0f4390813b96e8e68fd78570396d0f4751fc
+  subpackages:
+  - curve25519
+  - ssh
+  - ssh/terminal
+testImports: []
