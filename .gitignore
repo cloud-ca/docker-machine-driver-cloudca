@@ -22,3 +22,7 @@ _testmain.go
 *.exe
 *.test
 *.prof
+
+vendor/
+dist/
+bin/docker-machine-driver-cloudca

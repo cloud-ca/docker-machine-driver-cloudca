@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"io/ioutil"
 
 	"github.com/cloud-ca/go-cloudca"
 	"github.com/cloud-ca/go-cloudca/services/cloudca"
@@ -12,6 +13,7 @@ import (
 	"github.com/docker/machine/libmachine/log"
 	"github.com/docker/machine/libmachine/mcnflag"
 	"github.com/docker/machine/libmachine/state"
+	"github.com/docker/machine/libmachine/ssh"
 )
 
 const (
@@ -192,8 +194,6 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.SwarmMaster = flags.Bool("swarm-master")
 	d.SwarmDiscovery = flags.String("swarm-discovery")
 
-	d.SSHKeyPair = d.MachineName
-
 	if d.ApiUrl == "" {
 		return &configError{option: "api-url"}
 	}
@@ -298,10 +298,18 @@ func (d *Driver) Create() error {
 	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
 	ccaResources := resources.(cloudca.Resources)
 
-	instanceToCreate := cloudca.Instance{Name: d.MachineName,
+	key, err := d.createSshKey()
+	if err != nil {
+		return err
+	}
+
+	instanceToCreate := cloudca.Instance{
+		Name:              d.MachineName,
 		ComputeOfferingId: d.ComputeOfferingId,
 		TemplateId:        d.TemplateId,
 		NetworkId:         d.NetworkId,
+		PublicKey:         key,
+		SSHKeyName:        d.MachineName,
 	}
 
 	/*if sshKeyname, ok := d.GetOk("ssh_key_name"); ok {
@@ -530,4 +538,16 @@ func (d *Driver) configurePortForwardingRules() error {
 func isID(id string) bool {
 	re := regexp.MustCompile(`^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
 	return re.MatchString(id)
+}
+
+func (d *Driver) createSshKey() (string, error) {
+	sshKeyPath := d.ResolveStorePath("id_rsa")
+	if err := ssh.GenerateSSHKey(sshKeyPath); err != nil {
+		return "", err
+	}
+	key, err := ioutil.ReadFile(sshKeyPath + ".pub")
+	if err != nil {
+		return "", err
+	}
+	return string(key), nil
 }
