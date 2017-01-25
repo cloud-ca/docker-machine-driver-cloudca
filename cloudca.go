@@ -3,6 +3,7 @@ package cloudca
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/cloud-ca/go-cloudca"
@@ -29,28 +30,30 @@ func (e *configError) Error() string {
 
 type Driver struct {
 	*drivers.BaseDriver
-	Id                   string
-	APIURL               string
-	APIKey               string
-	ServiceCode          string
-	EnvironmentName      string
-	UsePrivateIP         bool
-	UsePortForward       bool
-	PublicIP             string
-	PublicIPID           string
-	DisassociatePublicIP bool
-	SSHKeyPair           string
-	PrivateIP            string
-	Purge                bool
-	Template             string
-	TemplateID           string
-	ComputeOffering      string
-	ComputeOfferingID    string
-	CpuCount             string
-	MemoryInMb           string
-	NetworkID            string
-	UserDataFile         string
-	UserData             string
+	Id                string
+	ApiUrl            string
+	ApiKey            string
+	ServiceCode       string
+	EnvironmentName   string
+	UsePrivateIp      bool
+	UsePortForward    bool
+	PublicIp          string
+	PublicIpId        string
+	ReleasePublicIp   bool
+	SSHKeyPair        string
+	PrivateIp         string
+	PrivateIpId       string
+	Purge             bool
+	Template          string
+	TemplateId        string
+	ComputeOffering   string
+	ComputeOfferingId string
+	CpuCount          string
+	MemoryInMb        string
+	NetworkId         string
+	VpcId             string
+	UserDataFile      string
+	UserData          string
 }
 
 // GetCreateFlags registers the flags this driver adds to
@@ -155,12 +158,12 @@ func (d *Driver) GetSSHUsername() string {
 // SetConfigFromFlags configures the driver with the object that was returned
 // by RegisterCreateFlags
 func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
-	d.APIURL = flags.String("cloudca-api-url")
-	d.APIKey = flags.String("cloudca-api-key")
+	d.ApiUrl = flags.String("cloudca-api-url")
+	d.ApiKey = flags.String("cloudca-api-key")
 	d.ServiceCode = flags.String("cloudca-service-code")
 	d.EnvironmentName = flags.String("cloudca-environment-name")
-	d.NetworkID = flags.String("cloudca-network-id")
-	d.UsePrivateIP = flags.Bool("cloudca-use-private-address")
+
+	d.UsePrivateIp = flags.Bool("cloudca-use-private-address")
 	d.UsePortForward = flags.Bool("cloudca-use-port-forward")
 	d.SSHUser = flags.String("cloudca-ssh-user")
 	d.Purge = flags.Bool("cloudca-purge")
@@ -171,6 +174,9 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 		return err
 	}
 	if err := d.setComputeOffering(flags.String("cloudca-compute-offering")); err != nil {
+		return err
+	}
+	if err := d.setNetwork(flags.String("cloudca-network-id")); err != nil {
 		return err
 	}
 	// if err := d.setNetwork(flags.String("cloudca-network")); err != nil {
@@ -188,11 +194,11 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 
 	d.SSHKeyPair = d.MachineName
 
-	if d.APIURL == "" {
+	if d.ApiUrl == "" {
 		return &configError{option: "api-url"}
 	}
 
-	if d.APIKey == "" {
+	if d.ApiKey == "" {
 		return &configError{option: "api-key"}
 	}
 
@@ -212,7 +218,7 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 		return &configError{option: "compute-offering"}
 	}
 
-	d.DisassociatePublicIP = false
+	d.ReleasePublicIp = false
 
 	return nil
 }
@@ -229,10 +235,10 @@ func (d *Driver) GetURL() (string, error) {
 
 // GetIP returns the IP that this host is available at
 func (d *Driver) GetIP() (string, error) {
-	if d.UsePrivateIP {
-		return d.PrivateIP, nil
+	if d.UsePrivateIp {
+		return d.PrivateIp, nil
 	}
-	return d.PublicIP, nil
+	return d.PublicIp, nil
 }
 
 // GetState returns the state that the host is in (running, stopped, etc)
@@ -293,9 +299,9 @@ func (d *Driver) Create() error {
 	ccaResources := resources.(cloudca.Resources)
 
 	instanceToCreate := cloudca.Instance{Name: d.MachineName,
-		ComputeOfferingId: d.ComputeOfferingID,
-		TemplateId:        d.TemplateID,
-		NetworkId:         d.NetworkID,
+		ComputeOfferingId: d.ComputeOfferingId,
+		TemplateId:        d.TemplateId,
+		NetworkId:         d.NetworkId,
 	}
 
 	/*if sshKeyname, ok := d.GetOk("ssh_key_name"); ok {
@@ -331,25 +337,20 @@ func (d *Driver) Create() error {
 	}
 
 	d.Id = newInstance.Id
-	d.PrivateIP = newInstance.IpAddress
+	d.PrivateIp = newInstance.IpAddress
+	d.PrivateIpId = newInstance.IpAddressId
 
-	// if !d.UsePrivateIP {
-	// 	if d.PublicIPID == "" {
-	// 		if err := d.acquirePublicIP(); err != nil {
-	// 			return err
-	// 		}
-	// 	}
-	//
-	// 	if d.UsePortForward {
-	// 		if err := d.configurePortForwardingRules(); err != nil {
-	// 			return err
-	// 		}
-	// 	} else {
-	// 		if err := d.enableStaticNat(); err != nil {
-	// 			return err
-	// 		}
-	// 	}
-	//}
+	if !d.UsePrivateIp {
+		if d.PublicIpId == "" {
+			if err := d.acquirePublicIP(); err != nil {
+				return err
+			}
+		}
+
+		if err := d.configurePortForwardingRules(); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -377,18 +378,18 @@ func (d *Driver) Kill() (err error) {
 }
 
 func (d *Driver) getClient() *cca.CcaClient {
-	return cca.NewCcaClientWithURL(d.APIURL, d.APIKey)
+	return cca.NewCcaClientWithURL(d.ApiUrl, d.ApiKey)
 }
 
 func (d *Driver) setTemplate(template string) error {
 	if isID(template) {
-		d.TemplateID = template
-		log.Debugf("template id: %q", d.TemplateID)
+		d.TemplateId = template
+		log.Debugf("template id: %q", d.TemplateId)
 		return nil
 	}
 
 	d.Template = template
-	d.TemplateID = ""
+	d.TemplateId = ""
 	if d.Template == "" {
 		return nil
 	}
@@ -406,8 +407,8 @@ func (d *Driver) setTemplate(template string) error {
 	for _, currentTpl := range templates {
 
 		if strings.EqualFold(template, currentTpl.Name) {
-			d.TemplateID = currentTpl.Id
-			log.Debugf("template id: %q", d.TemplateID)
+			d.TemplateId = currentTpl.Id
+			log.Debugf("template id: %q", d.TemplateId)
 		}
 	}
 
@@ -416,13 +417,13 @@ func (d *Driver) setTemplate(template string) error {
 
 func (d *Driver) setComputeOffering(computeOffering string) error {
 	if isID(computeOffering) {
-		d.ComputeOfferingID = computeOffering
-		log.Debugf("compute offering id: %q", d.ComputeOfferingID)
+		d.ComputeOfferingId = computeOffering
+		log.Debugf("compute offering id: %q", d.ComputeOfferingId)
 		return nil
 	}
 
 	d.ComputeOffering = computeOffering
-	d.ComputeOfferingID = ""
+	d.ComputeOfferingId = ""
 	if d.ComputeOffering == "" {
 		return nil
 	}
@@ -438,8 +439,88 @@ func (d *Driver) setComputeOffering(computeOffering string) error {
 	for _, offering := range computeOfferings {
 
 		if strings.EqualFold(offering.Name, computeOffering) {
-			d.ComputeOfferingID = offering.Id
+			d.ComputeOfferingId = offering.Id
 			log.Debugf("Found compute offering: %+v", offering)
+		}
+	}
+
+	return nil
+}
+
+func (d *Driver) setNetwork(networkId string) error {
+	d.NetworkId = networkId
+
+	ccaClient := d.getClient()
+	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
+	ccaResources := resources.(cloudca.Resources)
+
+	tier, err := ccaResources.Tiers.Get(networkId)
+	if err != nil {
+		return err
+	}
+	d.VpcId = tier.VpcId
+
+	return nil
+}
+
+func (d *Driver) acquirePublicIP() error {
+	ccaClient := d.getClient()
+	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
+	ccaResources := resources.(cloudca.Resources)
+
+	log.Infof("Acquiring public ip address...")
+	publicIpToCreate := cloudca.PublicIp{
+		VpcId: d.VpcId,
+	}
+	newPublicIp, err := ccaResources.PublicIps.Acquire(publicIpToCreate)
+	if err != nil {
+		return fmt.Errorf("Error acquiring the new public ip %s", err)
+	}
+	d.PublicIpId = newPublicIp.Id
+	d.PublicIp = newPublicIp.IpAddress
+	d.ReleasePublicIp = true
+
+	return nil
+}
+
+func (d *Driver) configurePortForwardingRule(publicPort, privatePort int) error {
+	ccaClient := d.getClient()
+	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
+	ccaResources := resources.(cloudca.Resources)
+
+	log.Debugf("Creating port forwarding rule ... : port %d", publicPort)
+	pfr := cloudca.PortForwardingRule{
+		PublicIpId:       d.PublicIpId,
+		Protocol:         "TCP",
+		PublicPortStart:  strconv.Itoa(publicPort),
+		PrivateIpId:      d.PrivateIpId,
+		PrivatePortStart: strconv.Itoa(privatePort),
+	}
+	_, err := ccaResources.PortForwardingRules.Create(pfr)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *Driver) configurePortForwardingRules() error {
+
+	log.Infof("Creating port forwarding rules...")
+	log.Info("Creating port forwarding rule for ssh port ...")
+	if err := d.configurePortForwardingRule(22, 22); err != nil {
+		return err
+	}
+
+	log.Info("Creating port forwarding rule for docker port ...")
+	if err := d.configurePortForwardingRule(dockerPort, dockerPort); err != nil {
+		return err
+	}
+
+	if d.SwarmMaster {
+		log.Info("Creating port forwarding rule for swarm port ...")
+		if err := d.configurePortForwardingRule(swarmPort, swarmPort); err != nil {
+			return err
 		}
 	}
 

@@ -1,8 +1,8 @@
-hash: 4f2ffc66945fd9c1ebfbf976b042bbcb1c7c878cd27f26ae2c73f9c3710439ab
-updated: 2017-01-24T10:46:42.194675024-05:00
+hash: 8f38cf2c4c422fda6ae6006740ceb351a5046d6385c1eef5cba210bebe6ca065
+updated: 2017-01-25T10:52:33.883375627-05:00
 imports:
 - name: github.com/cloud-ca/go-cloudca
-  version: ee9b9223cc3ddaad9b2e7e18031367b69437508a
+  version: 9d024dba5a8c98434222faf9c4fd1d2f8906ecae
   subpackages:
   - api
   - configuration
