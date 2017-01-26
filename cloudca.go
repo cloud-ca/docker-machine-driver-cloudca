@@ -41,7 +41,6 @@ type Driver struct {
 	UsePortForward    bool
 	PublicIp          string
 	PublicIpId        string
-	ReleasePublicIp   bool
 	SSHKeyPair        string
 	PrivateIp         string
 	PrivateIpId       string
@@ -181,12 +180,6 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	if err := d.setNetwork(flags.String("cloudca-network-id")); err != nil {
 		return err
 	}
-	// if err := d.setNetwork(flags.String("cloudca-network")); err != nil {
-	// 	return err
-	// }
-	// if err := d.setPublicIP(flags.String("cloudca-public-ip")); err != nil {
-	// 	return err
-	// }
 	// if err := d.setUserData(flags.String("cloudca-userdata-file")); err != nil {
 	// 	return err
 	// }
@@ -218,8 +211,6 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 		return &configError{option: "compute-offering"}
 	}
 
-	d.ReleasePublicIp = false
-
 	return nil
 }
 
@@ -244,10 +235,7 @@ func (d *Driver) GetIP() (string, error) {
 // GetState returns the state that the host is in (running, stopped, etc)
 func (d *Driver) GetState() (state.State, error) {
 	ccaClient := d.getClient()
-	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
-	ccaResources := resources.(cloudca.Resources)
-
-	instance, err := ccaResources.Instances.Get(d.Id)
+	instance, err := ccaClient.Instances.Get(d.Id)
 	if err != nil {
 		return state.Error, err
 	}
@@ -294,9 +282,6 @@ func (d *Driver) PreCreateCheck() error {
 
 // Create a host using the driver's config
 func (d *Driver) Create() error {
-	ccaClient := d.getClient()
-	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
-	ccaResources := resources.(cloudca.Resources)
 
 	key, err := d.createSshKey()
 	if err != nil {
@@ -338,8 +323,8 @@ func (d *Driver) Create() error {
 	// } else if !computeOffering.Custom && hasCustomFields {
 	//    return fmt.Errorf("Cannot have a CPU count or memory in MB because \"%s\" isn't a custom compute offering", computeOffering.Name)
 	// }
-
-	newInstance, err := ccaResources.Instances.Create(instanceToCreate)
+	ccaClient := d.getClient()
+	newInstance, err := ccaClient.Instances.Create(instanceToCreate)
 	if err != nil {
 		return fmt.Errorf("Error creating the new instance %s: %s", instanceToCreate.Name, err)
 	}
@@ -364,29 +349,90 @@ func (d *Driver) Create() error {
 }
 
 func (d *Driver) Remove() error {
-	return fmt.Errorf("Removing machines is not implemented yet")
+
+	if err := d.releasePublicIP(); err != nil {
+		return err
+	}
+
+	log.Info("Removing cloud.ca instance...")
+	ccaClient := d.getClient()
+	if _, err := ccaClient.Instances.Destroy(d.Id, d.Purge); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *Driver) Start() (err error) {
+	vmstate, err := d.GetState()
+	if err != nil {
+		return err
+	}
+
+	if vmstate == state.Running {
+		log.Info("Machine is already running")
+		return nil
+	}
+
+	if vmstate == state.Starting {
+		log.Info("Machine is already starting")
+		return nil
+	}
+
+	ccaClient := d.getClient()
+	if _, err = ccaClient.Instances.Start(d.Id); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *Driver) Stop() (err error) {
+	vmstate, err := d.GetState()
+	if err != nil {
+		return err
+	}
+
+	if vmstate == state.Stopped {
+		log.Info("Machine is already stopped")
+		return nil
+	}
+
+	ccaClient := d.getClient()
+	if _, err = ccaClient.Instances.Stop(d.Id); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (d *Driver) Restart() (err error) {
-	return fmt.Errorf("Restarting machines is not implemented yet")
-}
+	log.Info("Restarting machine")
+	vmstate, err := d.GetState()
+	if err != nil {
+		return err
+	}
 
-// Start (STUB) start machine
-func (d *Driver) Start() (err error) {
-	return fmt.Errorf("Starting machines is not implemented yet")
-}
+	if vmstate == state.Stopped {
+		return fmt.Errorf("Machine is stopped, use start command to start it")
+	}
 
-// Stop (STUB) stop machine
-func (d *Driver) Stop() (err error) {
-	return fmt.Errorf("Stopping machines is not implemented yet")
+	ccaClient := d.getClient()
+	if _, err = ccaClient.Instances.Reboot(d.Id); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (d *Driver) Kill() (err error) {
 	return fmt.Errorf("Killing machines is not implemented yet")
 }
 
-func (d *Driver) getClient() *cca.CcaClient {
-	return cca.NewCcaClientWithURL(d.ApiUrl, d.ApiKey)
+func (d *Driver) getClient() cloudca.Resources {
+	ccaClient := cca.NewCcaClientWithURL(d.ApiUrl, d.ApiKey)
+	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
+	return resources.(cloudca.Resources)
 }
 
 func (d *Driver) setTemplate(template string) error {
@@ -403,12 +449,7 @@ func (d *Driver) setTemplate(template string) error {
 	}
 
 	ccaClient := d.getClient()
-	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
-	ccaResources := resources.(cloudca.Resources)
-
-	log.Debugf("resources: %v", resources)
-
-	templates, err := ccaResources.Templates.List()
+	templates, err := ccaClient.Templates.List()
 	if err != nil {
 		return fmt.Errorf("Unable to list templates: %v", err)
 	}
@@ -437,10 +478,7 @@ func (d *Driver) setComputeOffering(computeOffering string) error {
 	}
 
 	ccaClient := d.getClient()
-	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
-	ccaResources := resources.(cloudca.Resources)
-
-	computeOfferings, err := ccaResources.ComputeOfferings.List()
+	computeOfferings, err := ccaClient.ComputeOfferings.List()
 	if err != nil {
 		return err
 	}
@@ -459,10 +497,7 @@ func (d *Driver) setNetwork(networkId string) error {
 	d.NetworkId = networkId
 
 	ccaClient := d.getClient()
-	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
-	ccaResources := resources.(cloudca.Resources)
-
-	tier, err := ccaResources.Tiers.Get(networkId)
+	tier, err := ccaClient.Tiers.Get(networkId)
 	if err != nil {
 		return err
 	}
@@ -472,30 +507,34 @@ func (d *Driver) setNetwork(networkId string) error {
 }
 
 func (d *Driver) acquirePublicIP() error {
-	ccaClient := d.getClient()
-	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
-	ccaResources := resources.(cloudca.Resources)
-
 	log.Infof("Acquiring public ip address...")
 	publicIpToCreate := cloudca.PublicIp{
 		VpcId: d.VpcId,
 	}
-	newPublicIp, err := ccaResources.PublicIps.Acquire(publicIpToCreate)
+	ccaClient := d.getClient()
+	newPublicIp, err := ccaClient.PublicIps.Acquire(publicIpToCreate)
 	if err != nil {
 		return fmt.Errorf("Error acquiring the new public ip %s", err)
 	}
 	d.PublicIpId = newPublicIp.Id
 	d.PublicIp = newPublicIp.IpAddress
-	d.ReleasePublicIp = true
+
+	return nil
+}
+
+func (d *Driver) releasePublicIP() error {
+	log.Infof("Releasing public ip address...")
+
+	ccaClient := d.getClient()
+	_, err := ccaClient.PublicIps.Release(d.PublicIpId)
+	if err != nil {
+		return fmt.Errorf("Error releasing the public ip %s", err)
+	}
 
 	return nil
 }
 
 func (d *Driver) configurePortForwardingRule(publicPort, privatePort int) error {
-	ccaClient := d.getClient()
-	resources, _ := ccaClient.GetResources(d.ServiceCode, d.EnvironmentName)
-	ccaResources := resources.(cloudca.Resources)
-
 	log.Debugf("Creating port forwarding rule ... : port %d", publicPort)
 	pfr := cloudca.PortForwardingRule{
 		PublicIpId:       d.PublicIpId,
@@ -504,7 +543,8 @@ func (d *Driver) configurePortForwardingRule(publicPort, privatePort int) error 
 		PrivateIpId:      d.PrivateIpId,
 		PrivatePortStart: strconv.Itoa(privatePort),
 	}
-	_, err := ccaResources.PortForwardingRules.Create(pfr)
+	ccaClient := d.getClient()
+	_, err := ccaClient.PortForwardingRules.Create(pfr)
 	if err != nil {
 		return err
 	}
