@@ -2,18 +2,18 @@ package cloudca
 
 import (
 	"fmt"
+	"io/ioutil"
 	"regexp"
 	"strconv"
 	"strings"
-	"io/ioutil"
 
 	"github.com/cloud-ca/go-cloudca"
 	"github.com/cloud-ca/go-cloudca/services/cloudca"
 	"github.com/docker/machine/libmachine/drivers"
 	"github.com/docker/machine/libmachine/log"
 	"github.com/docker/machine/libmachine/mcnflag"
-	"github.com/docker/machine/libmachine/state"
 	"github.com/docker/machine/libmachine/ssh"
+	"github.com/docker/machine/libmachine/state"
 )
 
 const (
@@ -234,6 +234,7 @@ func (d *Driver) GetIP() (string, error) {
 
 // GetState returns the state that the host is in (running, stopped, etc)
 func (d *Driver) GetState() (state.State, error) {
+	log.Info("Getting state of the cloud.ca instance...")
 	ccaClient := d.getClient()
 	instance, err := ccaClient.Instances.Get(d.Id)
 	if err != nil {
@@ -253,14 +254,16 @@ func (d *Driver) GetState() (state.State, error) {
 		return state.Stopped, nil
 	case "Expunging":
 		return state.Stopped, nil
+	case "Rebooting":
+		return state.Stopped, nil
+	case "Shutdowned":
+		return state.Stopped, nil
 	case "Migrating":
 		return state.Paused, nil
 	case "Error":
 		return state.Error, nil
 	case "Unknown":
 		return state.Error, nil
-	case "Shutdowned":
-		return state.Stopped, nil
 	}
 
 	return state.None, nil
@@ -297,12 +300,6 @@ func (d *Driver) Create() error {
 		SSHKeyName:        d.MachineName,
 	}
 
-	/*if sshKeyname, ok := d.GetOk("ssh_key_name"); ok {
-	     instanceToCreate.SSHKeyName = sshKeyname.(string)
-	  }
-	  if publicKey, ok := d.GetOk("public_key"); ok {
-	     instanceToCreate.PublicKey = publicKey.(string)
-	  }*/
 	if d.UserData != "" {
 		instanceToCreate.UserData = d.UserData
 	}
@@ -349,12 +346,10 @@ func (d *Driver) Create() error {
 }
 
 func (d *Driver) Remove() error {
-
 	if err := d.releasePublicIP(); err != nil {
 		return err
 	}
 
-	log.Info("Removing cloud.ca instance...")
 	ccaClient := d.getClient()
 	if _, err := ccaClient.Instances.Destroy(d.Id, d.Purge); err != nil {
 		return err
@@ -407,7 +402,6 @@ func (d *Driver) Stop() (err error) {
 }
 
 func (d *Driver) Restart() (err error) {
-	log.Info("Restarting machine")
 	vmstate, err := d.GetState()
 	if err != nil {
 		return err
@@ -426,7 +420,7 @@ func (d *Driver) Restart() (err error) {
 }
 
 func (d *Driver) Kill() (err error) {
-	return fmt.Errorf("Killing machines is not implemented yet")
+	return d.Stop()
 }
 
 func (d *Driver) getClient() cloudca.Resources {
@@ -535,7 +529,6 @@ func (d *Driver) releasePublicIP() error {
 }
 
 func (d *Driver) configurePortForwardingRule(publicPort, privatePort int) error {
-	log.Debugf("Creating port forwarding rule ... : port %d", publicPort)
 	pfr := cloudca.PortForwardingRule{
 		PublicIpId:       d.PublicIpId,
 		Protocol:         "TCP",
@@ -553,7 +546,6 @@ func (d *Driver) configurePortForwardingRule(publicPort, privatePort int) error 
 }
 
 func (d *Driver) configurePortForwardingRules() error {
-
 	log.Infof("Creating port forwarding rules...")
 	log.Info("Creating port forwarding rule for ssh port ...")
 	if err := d.configurePortForwardingRule(22, 22); err != nil {
