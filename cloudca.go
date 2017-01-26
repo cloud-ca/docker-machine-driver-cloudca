@@ -181,9 +181,9 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	if err := d.setNetwork(flags.String("cloudca-network-id")); err != nil {
 		return err
 	}
-	// if err := d.setUserData(flags.String("cloudca-userdata-file")); err != nil {
-	// 	return err
-	// }
+	if err := d.setUserData(flags.String("cloudca-userdata-file")); err != nil {
+		return err
+	}
 
 	d.SwarmMaster = flags.Bool("swarm-master")
 	d.SwarmDiscovery = flags.String("swarm-discovery")
@@ -505,6 +505,23 @@ func (d *Driver) setNetwork(networkId string) error {
 		return err
 	}
 	d.VpcId = tier.VpcId
+
+	return nil
+}
+
+func (d *Driver) setUserData(userDataFile string) error {
+	d.UserDataFile = userDataFile
+
+	if d.UserDataFile == "" {
+		return nil
+	}
+
+	data, err := ioutil.ReadFile(d.UserDataFile)
+	if err != nil {
+		return fmt.Errorf("Failed to read user data file: %s", err)
+	}
+
+	d.UserData = string(data)
 
 	return nil
 }
