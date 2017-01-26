@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cloud-ca/go-cloudca"
+	"github.com/cloud-ca/go-cloudca/api"
 	"github.com/cloud-ca/go-cloudca/services/cloudca"
 	"github.com/docker/machine/libmachine/drivers"
 	"github.com/docker/machine/libmachine/log"
@@ -347,12 +348,20 @@ func (d *Driver) Create() error {
 
 func (d *Driver) Remove() error {
 	if err := d.releasePublicIP(); err != nil {
-		return err
+		if ccaErr, ok := err.(api.CcaErrorResponse); ok && ccaErr.StatusCode == 404 {
+			log.Info("Public IP was not found, assuming it was already deleted...")
+		} else {
+			return err
+		}
 	}
 
 	ccaClient := d.getClient()
 	if _, err := ccaClient.Instances.Destroy(d.Id, d.Purge); err != nil {
-		return err
+		if ccaErr, ok := err.(api.CcaErrorResponse); ok && ccaErr.StatusCode == 404 {
+			log.Info("Instance was not found, assuming it was already deleted...")
+		} else {
+			return err
+		}
 	}
 
 	return nil
@@ -501,7 +510,7 @@ func (d *Driver) setNetwork(networkId string) error {
 }
 
 func (d *Driver) acquirePublicIP() error {
-	log.Infof("Acquiring public ip address...")
+	log.Info("Acquiring public ip address...")
 	publicIpToCreate := cloudca.PublicIp{
 		VpcId: d.VpcId,
 	}
@@ -517,15 +526,11 @@ func (d *Driver) acquirePublicIP() error {
 }
 
 func (d *Driver) releasePublicIP() error {
-	log.Infof("Releasing public ip address...")
+	log.Info("Releasing public ip address...")
 
 	ccaClient := d.getClient()
 	_, err := ccaClient.PublicIps.Release(d.PublicIpId)
-	if err != nil {
-		return fmt.Errorf("Error releasing the public ip %s", err)
-	}
-
-	return nil
+	return err
 }
 
 func (d *Driver) configurePortForwardingRule(publicPort, privatePort int) error {
