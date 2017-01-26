@@ -1,5 +1,5 @@
-hash: 8f38cf2c4c422fda6ae6006740ceb351a5046d6385c1eef5cba210bebe6ca065
-updated: 2017-01-25T10:52:33.883375627-05:00
+hash: 9c4a7f399e81ca9ffdbaf82626bea9668eb3c8d025b63110c39088640f9f4b7f
+updated: 2017-01-26T13:13:26.489734626-05:00
 imports:
 - name: github.com/cloud-ca/go-cloudca
   version: 9d024dba5a8c98434222faf9c4fd1d2f8906ecae
@@ -26,6 +26,8 @@ imports:
   - libmachine/state
   - libmachine/version
   - version
+- name: github.com/mitchellh/gox
+  version: 54b619477e8932bbb6314644c867e7e6db7a9c71
 - name: golang.org/x/crypto
   version: beef0f4390813b96e8e68fd78570396d0f4751fc
   subpackages:

@@ -3,6 +3,7 @@ package cloudca
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -55,7 +56,6 @@ type Driver struct {
 	NetworkId         string
 	VpcId             string
 	UserDataFile      string
-	UserData          string
 }
 
 // GetCreateFlags registers the flags this driver adds to
@@ -171,6 +171,7 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.Purge = flags.Bool("cloudca-purge")
 	d.CpuCount = flags.String("cloudca-cpu-count")
 	d.MemoryInMb = flags.String("cloudca-memory-mb")
+	d.UserDataFile = flags.String("cloudca-userdata-file")
 
 	if err := d.setTemplate(flags.String("cloudca-template")); err != nil {
 		return err
@@ -179,9 +180,6 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 		return err
 	}
 	if err := d.setNetwork(flags.String("cloudca-network-id")); err != nil {
-		return err
-	}
-	if err := d.setUserData(flags.String("cloudca-userdata-file")); err != nil {
 		return err
 	}
 
@@ -272,14 +270,24 @@ func (d *Driver) GetState() (state.State, error) {
 
 // PreCreate allows for pre-create operations to make sure a driver is ready for creation
 func (d *Driver) PreCreateCheck() error {
-	//
-	// if err := d.checkKeyPair(); err != nil {
-	// 	return err
-	// }
-	//
-	// if err := d.checkInstance(); err != nil {
-	// 	return err
-	// }
+	if d.UserDataFile != "" {
+		if _, err := os.Stat(d.UserDataFile); os.IsNotExist(err) {
+			return fmt.Errorf("user-data file %s could not be found", d.UserDataFile)
+		}
+	}
+
+	hasCustomFields := false
+	if d.CpuCount != "" || d.MemoryInMb != "" {
+		hasCustomFields = true
+	}
+
+	ccaClient := d.getClient()
+	computeOffering, cerr := ccaClient.ComputeOfferings.Get(d.ComputeOfferingId)
+	if cerr != nil {
+		return cerr
+	} else if !computeOffering.Custom && hasCustomFields {
+		return fmt.Errorf("Cannot have a CPU count or memory in MB because \"%s\" isn't a custom compute offering", computeOffering.Name)
+	}
 
 	return nil
 }
@@ -301,26 +309,22 @@ func (d *Driver) Create() error {
 		SSHKeyName:        d.MachineName,
 	}
 
-	if d.UserData != "" {
-		instanceToCreate.UserData = d.UserData
+	if d.UserDataFile != "" {
+		buf, ioerr := ioutil.ReadFile(d.UserDataFile)
+		if ioerr != nil {
+			return ioerr
+		}
+		instanceToCreate.UserData = string(buf)
+	}
+	if d.CpuCount != "" {
+		cpucount, _ := strconv.Atoi(d.CpuCount)
+		instanceToCreate.CpuCount = cpucount
+	}
+	if d.MemoryInMb != "" {
+		memory, _ := strconv.Atoi(d.MemoryInMb)
+		instanceToCreate.MemoryInMB = memory
 	}
 
-	// hasCustomFields := false
-	// if d.CpuCount, ok := d.GetOk("cpu_count"); ok {
-	//    instanceToCreate.CpuCount = cpuCount.(int)
-	//    hasCustomFields = true
-	// }
-	// if d.MemoryInMB, ok := d.GetOk("memory_in_mb"); ok {
-	//    instanceToCreate.MemoryInMB = memoryInMB.(int)
-	//    hasCustomFields = true
-	// }
-
-	// computeOffering, cerr := ccaResources.ComputeOfferings.Get(d.ComputeOfferingId)
-	// if cerr != nil {
-	//    return cerr
-	// } else if !computeOffering.Custom && hasCustomFields {
-	//    return fmt.Errorf("Cannot have a CPU count or memory in MB because \"%s\" isn't a custom compute offering", computeOffering.Name)
-	// }
 	ccaClient := d.getClient()
 	newInstance, err := ccaClient.Instances.Create(instanceToCreate)
 	if err != nil {
@@ -505,23 +509,6 @@ func (d *Driver) setNetwork(networkId string) error {
 		return err
 	}
 	d.VpcId = tier.VpcId
-
-	return nil
-}
-
-func (d *Driver) setUserData(userDataFile string) error {
-	d.UserDataFile = userDataFile
-
-	if d.UserDataFile == "" {
-		return nil
-	}
-
-	data, err := ioutil.ReadFile(d.UserDataFile)
-	if err != nil {
-		return fmt.Errorf("Failed to read user data file: %s", err)
-	}
-
-	d.UserData = string(data)
 
 	return nil
 }

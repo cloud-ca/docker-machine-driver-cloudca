@@ -6,20 +6,19 @@ init:
 	glide install
 
 build: clean
-	glide up
 	GOGC=off go build -i -o ./bin/docker-machine-driver-cloudca ./bin
 
 install: build
 	cp ./bin/docker-machine-driver-cloudca $(GOPATH)/bin/
 
-build-all:
+build-all: clean
 	# compile for all OS/Arch using Gox
 	gox -verbose \
 		-ldflags "-X main.version=${VERSION}" \
-		-os="linux darwin windows freebsd openbsd solaris" \
+		-os="linux darwin windows" \
 		-arch="386 amd64 arm" \
 		-osarch="!darwin/arm !darwin/386" \
-		-output="dist/{{.OS}}-{{.Arch}}/{{.Dir}}" .
+		-output="dist/{{.OS}}-{{.Arch}}/docker-machine-driver-cloudca" ./bin
 
 	# zip the executables
 	for PLATFORM in `find ./dist -mindepth 1 -maxdepth 1 -type d` ; do \
