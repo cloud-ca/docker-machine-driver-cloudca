@@ -543,8 +543,11 @@ func (d *Driver) acquirePublicIP() error {
 }
 
 func (d *Driver) releasePublicIP() error {
+	if d.PublicIpId == "" {
+		// No public IP to free - keep on keepin on.
+		return nil
+	}
 	log.Info("Releasing public ip address...")
-
 	ccaClient := d.getClient()
 	_, err := ccaClient.PublicIps.Release(d.PublicIpId)
 	return err
