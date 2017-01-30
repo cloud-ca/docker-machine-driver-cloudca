@@ -44,9 +44,7 @@ type Driver struct {
 	PublicIpId        string
 	PrivateIp         string
 	PrivateIpId       string
-	Template          string
 	TemplateId        string
-	ComputeOffering   string
 	ComputeOfferingId string
 	CpuCount          string
 	MemoryInMb        string
@@ -183,11 +181,11 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 		return &configError{option: "environment-name"}
 	}
 
-	if d.Template == "" {
+	if d.TemplateId == "" {
 		return &configError{option: "template"}
 	}
 
-	if d.ComputeOffering == "" {
+	if d.ComputeOfferingId == "" {
 		return &configError{option: "compute-offering"}
 	}
 
@@ -417,9 +415,7 @@ func (d *Driver) setTemplate(template string) error {
 		return nil
 	}
 
-	d.Template = template
-	d.TemplateId = ""
-	if d.Template == "" {
+	if template == "" {
 		return nil
 	}
 
@@ -446,9 +442,7 @@ func (d *Driver) setComputeOffering(computeOffering string) error {
 		return nil
 	}
 
-	d.ComputeOffering = computeOffering
-	d.ComputeOfferingId = ""
-	if d.ComputeOffering == "" {
+	if computeOffering == "" {
 		return nil
 	}
 
