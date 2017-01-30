@@ -3,7 +3,6 @@ package cloudca
 import (
 	"fmt"
 	"io/ioutil"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,9 +18,10 @@ import (
 )
 
 const (
-	driverName = "cloudca"
-	dockerPort = 2376
-	swarmPort  = 3376
+	driverName     = "cloudca"
+	defaultSSHUser = "cca-user"
+	dockerPort     = 2376
+	swarmPort      = 3376
 )
 
 type configError struct {
@@ -40,13 +40,10 @@ type Driver struct {
 	ServiceCode       string
 	EnvironmentName   string
 	UsePrivateIp      bool
-	UsePortForward    bool
 	PublicIp          string
 	PublicIpId        string
-	SSHKeyPair        string
 	PrivateIp         string
 	PrivateIpId       string
-	Purge             bool
 	Template          string
 	TemplateId        string
 	ComputeOffering   string
@@ -55,7 +52,6 @@ type Driver struct {
 	MemoryInMb        string
 	NetworkId         string
 	VpcId             string
-	UserDataFile      string
 }
 
 // GetCreateFlags registers the flags this driver adds to
@@ -66,6 +62,7 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Name:   "cloudca-api-url",
 			Usage:  "cloud.ca API URL",
 			EnvVar: "CLOUDCA_API_URL",
+			Value:  "https:///api.cloud.ca/v1",
 		},
 		mcnflag.StringFlag{
 			Name:   "cloudca-api-key",
@@ -83,49 +80,40 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			EnvVar: "CLOUDCA_ENVIRONMENT_NAME",
 		},
 		mcnflag.StringFlag{
-			Name:  "cloudca-template",
-			Usage: "cloud.ca template",
+			Name:   "cloudca-template",
+			Usage:  "cloud.ca template",
+			EnvVar: "CLOUDCA_TEMPLATE",
 		},
 		mcnflag.StringFlag{
-			Name:  "cloudca-compute-offering",
-			Usage: "cloud.ca compute offering",
+			Name:   "cloudca-compute-offering",
+			Usage:  "cloud.ca compute offering",
+			EnvVar: "CLOUDCA_COMPUTE_OFFERING",
 		},
 		mcnflag.StringFlag{
-			Name:  "cloudca-cpu-count",
-			Usage: "cloud.ca CPU count for custom compute offerings",
+			Name:   "cloudca-cpu-count",
+			Usage:  "cloud.ca CPU count for custom compute offerings",
+			EnvVar: "CLOUDCA_CPU_COUNT",
 		},
 		mcnflag.StringFlag{
-			Name:  "cloudca-memory-mb",
-			Usage: "cloud.ca memory in MB for custom compute offerings",
+			Name:   "cloudca-memory-mb",
+			Usage:  "cloud.ca memory in MB for custom compute offerings",
+			EnvVar: "CLOUDCA_MEMORY_MB",
 		},
 		mcnflag.StringFlag{
-			Name:  "cloudca-network-id",
-			Usage: "cloud.ca network ID",
+			Name:   "cloudca-network-id",
+			Usage:  "cloud.ca network ID",
+			EnvVar: "CLOUDCA_NETWORK_ID",
 		},
 		mcnflag.BoolFlag{
-			Name:  "cloudca-use-private-address",
-			Usage: "Use a private IP to access the machine",
-		},
-		mcnflag.BoolFlag{
-			Name:  "cloudca-use-port-forward",
-			Usage: "Use port forwarding rule to access the machine",
+			Name:   "cloudca-use-private-ip",
+			Usage:  "Use a private IP to access the machine",
+			EnvVar: "CLOUDCA_USE_PRIVATE_IP",
 		},
 		mcnflag.StringFlag{
-			Name:  "cloudca-public-ip",
-			Usage: "cloud.ca Public IP",
-		},
-		mcnflag.StringFlag{
-			Name:  "cloudca-ssh-user",
-			Usage: "cloud.ca SSH user",
-			Value: "cca-user",
-		},
-		mcnflag.BoolFlag{
-			Name:  "cloudca-purge",
-			Usage: "Whether or not to purge the machine upon removal",
-		},
-		mcnflag.StringFlag{
-			Name:  "cloudca-userdata-file",
-			Usage: "cloud.ca Userdata file",
+			Name:   "cloudca-ssh-user",
+			Usage:  "cloud.ca SSH user",
+			EnvVar: "CLOUDCA_SSH_USER",
+			Value:  defaultSSHUser,
 		},
 	}
 }
@@ -152,7 +140,7 @@ func (d *Driver) GetSSHHostname() (string, error) {
 
 func (d *Driver) GetSSHUsername() string {
 	if d.SSHUser == "" {
-		d.SSHUser = "cca-user"
+		d.SSHUser = defaultSSHUser
 	}
 	return d.SSHUser
 }
@@ -165,13 +153,10 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.ServiceCode = flags.String("cloudca-service-code")
 	d.EnvironmentName = flags.String("cloudca-environment-name")
 
-	d.UsePrivateIp = flags.Bool("cloudca-use-private-address")
-	d.UsePortForward = flags.Bool("cloudca-use-port-forward")
+	d.UsePrivateIp = flags.Bool("cloudca-use-private-ip")
 	d.SSHUser = flags.String("cloudca-ssh-user")
-	d.Purge = flags.Bool("cloudca-purge")
 	d.CpuCount = flags.String("cloudca-cpu-count")
 	d.MemoryInMb = flags.String("cloudca-memory-mb")
-	d.UserDataFile = flags.String("cloudca-userdata-file")
 
 	if err := d.setTemplate(flags.String("cloudca-template")); err != nil {
 		return err
@@ -185,10 +170,6 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 
 	d.SwarmMaster = flags.Bool("swarm-master")
 	d.SwarmDiscovery = flags.String("swarm-discovery")
-
-	if d.ApiUrl == "" {
-		return &configError{option: "api-url"}
-	}
 
 	if d.ApiKey == "" {
 		return &configError{option: "api-key"}
@@ -270,12 +251,6 @@ func (d *Driver) GetState() (state.State, error) {
 
 // PreCreate allows for pre-create operations to make sure a driver is ready for creation
 func (d *Driver) PreCreateCheck() error {
-	if d.UserDataFile != "" {
-		if _, err := os.Stat(d.UserDataFile); os.IsNotExist(err) {
-			return fmt.Errorf("user-data file %s could not be found", d.UserDataFile)
-		}
-	}
-
 	hasCustomFields := false
 	if d.CpuCount != "" || d.MemoryInMb != "" {
 		hasCustomFields = true
@@ -309,13 +284,6 @@ func (d *Driver) Create() error {
 		SSHKeyName:        d.MachineName,
 	}
 
-	if d.UserDataFile != "" {
-		buf, ioerr := ioutil.ReadFile(d.UserDataFile)
-		if ioerr != nil {
-			return ioerr
-		}
-		instanceToCreate.UserData = string(buf)
-	}
 	if d.CpuCount != "" {
 		cpucount, _ := strconv.Atoi(d.CpuCount)
 		instanceToCreate.CpuCount = cpucount
@@ -360,7 +328,7 @@ func (d *Driver) Remove() error {
 	}
 
 	ccaClient := d.getClient()
-	if _, err := ccaClient.Instances.Destroy(d.Id, d.Purge); err != nil {
+	if _, err := ccaClient.Instances.Destroy(d.Id, true); err != nil {
 		if ccaErr, ok := err.(api.CcaErrorResponse); ok && ccaErr.StatusCode == 404 {
 			log.Info("Instance was not found, assuming it was already deleted...")
 		} else {
