@@ -60,7 +60,7 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Name:   "cloudca-api-url",
 			Usage:  "cloud.ca API URL",
 			EnvVar: "CLOUDCA_API_URL",
-			Value:  "https:///api.cloud.ca/v1",
+			Value:  "https://api.cloud.ca/v1",
 		},
 		mcnflag.StringFlag{
 			Name:   "cloudca-api-key",
