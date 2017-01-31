@@ -79,12 +79,12 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 		},
 		mcnflag.StringFlag{
 			Name:   "cloudca-template",
-			Usage:  "cloud.ca template",
+			Usage:  "cloud.ca template name or ID",
 			EnvVar: "CLOUDCA_TEMPLATE",
 		},
 		mcnflag.StringFlag{
 			Name:   "cloudca-compute-offering",
-			Usage:  "cloud.ca compute offering",
+			Usage:  "cloud.ca compute offering name or ID",
 			EnvVar: "CLOUDCA_COMPUTE_OFFERING",
 		},
 		mcnflag.StringFlag{
@@ -326,7 +326,7 @@ func (d *Driver) Remove() error {
 	}
 
 	ccaClient := d.getClient()
-	if _, err := ccaClient.Instances.Destroy(d.Id, true); err != nil {
+	if _, err := ccaClient.Instances.DestroyWithOptions(d.Id, cloudca.DestroyOptions{PurgeImmediately: true}); err != nil {
 		if ccaErr, ok := err.(api.CcaErrorResponse); ok && ccaErr.StatusCode == 404 {
 			log.Info("Instance was not found, assuming it was already deleted...")
 		} else {
