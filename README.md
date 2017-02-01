@@ -31,7 +31,7 @@ docker-machine create -d cloudca \
    --cloudca-additional-disk-offering "50GB - 50 IOPS Min." \
    test-machine1
 ```
-** Notes: **
+**Notes:**
 * It is recommended to use Environment variables to store sensitive information like API keys. See the options below for the list of supported variables.
 * The cloud.ca instances have limited disk space on their root volumes. In order to get more disk space for your Docker machines, use the `--cloudca-additional-disk-offering` option to specify an additional volume that Docker will be able to use.
 
