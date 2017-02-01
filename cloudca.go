@@ -18,10 +18,14 @@ import (
 )
 
 const (
-	driverName     = "cloudca"
-	defaultSSHUser = "cca-user"
-	dockerPort     = 2376
-	swarmPort      = 3376
+	driverName            = "cloudca"
+	defaultSSHUser        = "cca-user"
+	dockerPort            = 2376
+	swarmPort             = 3376
+	userDataToMountVolume = `#!/bin/sh
+mkfs -t ext4 /dev/xvdb
+mkdir -p /var/lib/docker
+mount -t ext4 /dev/xvdb /var/lib/docker`
 )
 
 type configError struct {
@@ -34,22 +38,26 @@ func (e *configError) Error() string {
 
 type Driver struct {
 	*drivers.BaseDriver
-	Id                string
-	ApiUrl            string
-	ApiKey            string
-	ServiceCode       string
-	EnvironmentName   string
-	UsePrivateIp      bool
-	PublicIp          string
-	PublicIpId        string
-	PrivateIp         string
-	PrivateIpId       string
-	TemplateId        string
-	ComputeOfferingId string
-	CpuCount          string
-	MemoryInMb        string
-	NetworkId         string
-	VpcId             string
+	Id                       string
+	ApiUrl                   string
+	ApiKey                   string
+	ServiceCode              string
+	EnvironmentName          string
+	UsePrivateIp             bool
+	PublicIp                 string
+	PublicIpId               string
+	PrivateIp                string
+	PrivateIpId              string
+	TemplateId               string
+	ComputeOfferingId        string
+	CpuCount                 string
+	MemoryInMb               string
+	NetworkId                string
+	VpcId                    string
+	AdditionalDiskOfferingId string
+	AdditionalDiskSizeGb     string
+	AdditionalDiskIops       string
+	AdditionalVolumeId       string
 }
 
 // GetCreateFlags registers the flags this driver adds to
@@ -96,6 +104,21 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Name:   "cloudca-memory-mb",
 			Usage:  "cloud.ca memory in MB for custom compute offerings",
 			EnvVar: "CLOUDCA_MEMORY_MB",
+		},
+		mcnflag.StringFlag{
+			Name:   "cloudca-additional-disk-offering",
+			Usage:  "cloud.ca additional disk offering name or ID to attach to the machine",
+			EnvVar: "CLOUDCA_ADDITIONAL_DISK_OFFERING",
+		},
+		mcnflag.StringFlag{
+			Name:   "cloudca-additional-disk-size-gb",
+			Usage:  "cloud.ca additional disk size in GB (for custom disk offerings)",
+			EnvVar: "CLOUDCA_ADDITIONAL_DISK_SIZE_GB",
+		},
+		mcnflag.StringFlag{
+			Name:   "cloudca-additional-disk-iops",
+			Usage:  "cloud.ca additional disk IOPS (for custom disk offerings)",
+			EnvVar: "CLOUDCA_ADDITIONAL_DISK_IOPS",
 		},
 		mcnflag.StringFlag{
 			Name:   "cloudca-network-id",
@@ -153,8 +176,6 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 
 	d.UsePrivateIp = flags.Bool("cloudca-use-private-ip")
 	d.SSHUser = flags.String("cloudca-ssh-user")
-	d.CpuCount = flags.String("cloudca-cpu-count")
-	d.MemoryInMb = flags.String("cloudca-memory-mb")
 
 	if err := d.setTemplate(flags.String("cloudca-template")); err != nil {
 		return err
@@ -162,9 +183,18 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	if err := d.setComputeOffering(flags.String("cloudca-compute-offering")); err != nil {
 		return err
 	}
+	d.CpuCount = flags.String("cloudca-cpu-count")
+	d.MemoryInMb = flags.String("cloudca-memory-mb")
+
 	if err := d.setNetwork(flags.String("cloudca-network-id")); err != nil {
 		return err
 	}
+
+	if err := d.setAdditionalDiskOffering(flags.String("cloudca-additional-disk-offering")); err != nil {
+		return err
+	}
+	d.AdditionalDiskSizeGb = flags.String("cloudca-additional-disk-size-gb")
+	d.AdditionalDiskIops = flags.String("cloudca-additional-disk-iops")
 
 	d.SwarmMaster = flags.Bool("swarm-master")
 	d.SwarmDiscovery = flags.String("swarm-discovery")
@@ -249,17 +279,42 @@ func (d *Driver) GetState() (state.State, error) {
 
 // PreCreate allows for pre-create operations to make sure a driver is ready for creation
 func (d *Driver) PreCreateCheck() error {
-	hasCustomFields := false
-	if d.CpuCount != "" || d.MemoryInMb != "" {
-		hasCustomFields = true
-	}
-
 	ccaClient := d.getClient()
 	computeOffering, cerr := ccaClient.ComputeOfferings.Get(d.ComputeOfferingId)
 	if cerr != nil {
 		return cerr
-	} else if !computeOffering.Custom && hasCustomFields {
+	}
+
+	hasCustomComputeOfferingFields := false
+	if d.CpuCount != "" || d.MemoryInMb != "" {
+		hasCustomComputeOfferingFields = true
+	}
+
+	if !computeOffering.Custom && hasCustomComputeOfferingFields {
 		return fmt.Errorf("Cannot have a CPU count or memory in MB because \"%s\" isn't a custom compute offering", computeOffering.Name)
+	}
+	if computeOffering.Custom && !hasCustomComputeOfferingFields {
+		return fmt.Errorf("The CPU count and memory in MB are required because \"%s\" is a custom compute offering", computeOffering.Name)
+	}
+
+	if d.AdditionalDiskOfferingId != "" {
+		diskOffering, cerr := ccaClient.DiskOfferings.Get(d.AdditionalDiskOfferingId)
+		if cerr != nil {
+			return cerr
+		}
+
+		if !diskOffering.CustomSize && d.AdditionalDiskSizeGb != "" {
+			return fmt.Errorf("Cannot have a Size in GB \"%s\" isn't a custom size disk offering", diskOffering.Name)
+		}
+		if !diskOffering.CustomIops && d.AdditionalDiskIops != "" {
+			return fmt.Errorf("Cannot have a IOPS value because \"%s\" isn't a custom IOPS disk offering", diskOffering.Name)
+		}
+		if diskOffering.CustomSize && d.AdditionalDiskSizeGb == "" {
+			return fmt.Errorf("The additional size in GB is required because \"%s\" is a custom size disk offering", diskOffering.Name)
+		}
+		if diskOffering.CustomIops && d.AdditionalDiskIops == "" {
+			return fmt.Errorf("The IOPS value is required because \"%s\" is a custom IOPS disk offering", diskOffering.Name)
+		}
 	}
 
 	return nil
@@ -290,6 +345,12 @@ func (d *Driver) Create() error {
 		memory, _ := strconv.Atoi(d.MemoryInMb)
 		instanceToCreate.MemoryInMB = memory
 	}
+	if d.AdditionalDiskOfferingId != "" {
+		instanceToCreate.UserData = userDataToMountVolume
+		instanceToCreate.AdditionalDiskOfferingId = d.AdditionalDiskOfferingId
+		instanceToCreate.AdditionalDiskSizeInGb = d.AdditionalDiskSizeGb
+		instanceToCreate.AdditionalDiskIops = d.AdditionalDiskIops
+	}
 
 	ccaClient := d.getClient()
 	newInstance, err := ccaClient.Instances.Create(instanceToCreate)
@@ -300,6 +361,7 @@ func (d *Driver) Create() error {
 	d.Id = newInstance.Id
 	d.PrivateIp = newInstance.IpAddress
 	d.PrivateIpId = newInstance.IpAddressId
+	d.setAdditionalVolumeId()
 
 	if !d.UsePrivateIp {
 		if d.PublicIpId == "" {
@@ -325,8 +387,12 @@ func (d *Driver) Remove() error {
 		}
 	}
 
+	volumeIdsToDelete := []string{}
+	if d.AdditionalVolumeId != "" {
+		volumeIdsToDelete = []string{d.AdditionalVolumeId}
+	}
 	ccaClient := d.getClient()
-	if _, err := ccaClient.Instances.DestroyWithOptions(d.Id, cloudca.DestroyOptions{PurgeImmediately: true}); err != nil {
+	if _, err := ccaClient.Instances.DestroyWithOptions(d.Id, cloudca.DestroyOptions{PurgeImmediately: true, VolumeIdsToDelete: volumeIdsToDelete}); err != nil {
 		if ccaErr, ok := err.(api.CcaErrorResponse); ok && ccaErr.StatusCode == 404 {
 			log.Info("Instance was not found, assuming it was already deleted...")
 		} else {
@@ -462,6 +528,33 @@ func (d *Driver) setComputeOffering(computeOffering string) error {
 	return nil
 }
 
+func (d *Driver) setAdditionalDiskOffering(diskOffering string) error {
+	if isID(diskOffering) {
+		d.AdditionalDiskOfferingId = diskOffering
+		log.Debugf("Additional disk offering id: %q", d.AdditionalDiskOfferingId)
+		return nil
+	}
+
+	if diskOffering == "" {
+		return nil
+	}
+
+	ccaClient := d.getClient()
+	diskOfferings, err := ccaClient.DiskOfferings.List()
+	if err != nil {
+		return err
+	}
+	for _, offering := range diskOfferings {
+
+		if strings.EqualFold(offering.Name, diskOffering) {
+			d.AdditionalDiskOfferingId = offering.Id
+			log.Debugf("Found disk offering: %+v", offering)
+		}
+	}
+
+	return nil
+}
+
 func (d *Driver) setNetwork(networkId string) error {
 	d.NetworkId = networkId
 
@@ -471,6 +564,23 @@ func (d *Driver) setNetwork(networkId string) error {
 		return err
 	}
 	d.VpcId = tier.VpcId
+
+	return nil
+}
+
+func (d *Driver) setAdditionalVolumeId() error {
+	ccaClient := d.getClient()
+	volumes, err := ccaClient.Volumes.ListOfType("data")
+	if err != nil {
+		return err
+	}
+	for _, volume := range volumes {
+		if strings.EqualFold(volume.InstanceId, d.Id) {
+			d.AdditionalVolumeId = volume.Id
+			log.Debugf("Found additional volume ID: %+v", volume.Id)
+			break
+		}
+	}
 
 	return nil
 }
