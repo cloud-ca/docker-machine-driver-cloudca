@@ -18,8 +18,7 @@ install: build
 	cp ./bin/docker-machine-driver-cloudca $(GOPATH)/bin/
 
 build-all: clean
-	echo $(VERSION)
-	gox -verbose \
+	@gox -verbose \
 		-ldflags "-X main.version=$(VERSION)" \
 		-os="linux darwin windows" \
 		-arch="386 amd64 arm" \
