@@ -8,23 +8,18 @@ You need to get your **cloud.ca API key** from the cloud.ca portal through the _
 * Install [Docker Machine](https://docs.docker.com/machine/install-machine/)
 * Install [Go](https://golang.org/doc/install)
 
-
 ## Installation
-The easiest way to install the cloud.ca docker-machine driver is to:
 
-```bash
-go get github.com/cloud-ca/docker-machine-driver-cloudca
-cd $GOPATH/src/github.com/cloud-ca/docker-machine-driver-cloudca
-make install
-```
+1. Download the cloud.ca Docker Machine driver binary for your OS from the [releases page](https://github.com/cloud-ca/docker-machine-driver-cloudca/releases).
+2. Copy the driver to the directory where Docker Machine is located.
 
 ## Usage
 
 ```bash
 docker-machine create -d cloudca \
-   --cloudca-api-key "APIkey****************"
-   --cloudca-service-code "compute-qc"
-   --cloudca-environment-name "test-area"
+   --cloudca-api-key "APIkey****************" \
+   --cloudca-service-code "compute-qc" \
+   --cloudca-environment-name "test-area" \
    --cloudca-template "Ubuntu 16.04.01 HVM" \
    --cloudca-compute-offering "1vCPU.1GB" \
    --cloudca-network-id "bbefe8dd-bb3e-4f37-b467-b63f8334c15b" \
@@ -48,3 +43,22 @@ docker-machine create -d cloudca \
 |``--cloudca-additional-disk-offering``|``CLOUDCA_ADDITIONAL_DISK_OFFERING``|cloud.ca additional disk offering name or ID to attach to the machine|none     |no|
 |``--cloudca-use-private-ip``  |``CLOUDCA_USE_PRIVATE_IP``  |Use a private IP to access the machine|false |no|
 |``--cloudca-ssh-user``        |``CLOUDCA_SSH_USER``        |cloud.ca SSH user|cca-user|no|
+
+## Build from source
+
+Download the driver source:
+
+```bash
+$ go get github.com/cloud-ca/docker-machine-driver-cloudca
+```
+
+Compile the driver:
+
+```bash
+$ cd $GOPATH/src/github.com/cloud-ca/docker-machine-driver-cloudca
+$ make install
+```
+
+## License
+
+This project is licensed under the terms of the MIT license.
