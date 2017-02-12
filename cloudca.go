@@ -25,10 +25,10 @@ const (
 	userDataToMountVolume = `#cloud-config
 fs_setup:
    - label:  data
-     filesystem: 'btrfs'
+     filesystem: 'ext4'
      device: '/dev/xvdb'
 mounts:
- - [ xvdb, /var/lib/docker, "auto", "defaults", "0", "0" ]
+  - [ xvdb, /var/lib/docker, "ext4", "defaults", "0", "0" ]
 coreos:
   units:
     - name: format-datavolume.service
@@ -61,7 +61,8 @@ coreos:
           content: |
             [Unit]
             After=var-lib-docker.mount
-            Requires=var-lib-docker.mount`
+            Requires=var-lib-docker.mount
+`
 )
 
 type configError struct {
