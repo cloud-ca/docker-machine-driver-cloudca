@@ -22,10 +22,47 @@ const (
 	defaultSSHUser        = "cca-user"
 	dockerPort            = 2376
 	swarmPort             = 3376
-	userDataToMountVolume = `#!/bin/sh
-mkfs -t ext4 /dev/xvdb
-mkdir -p /var/lib/docker
-mount -t ext4 /dev/xvdb /var/lib/docker`
+	userDataToMountVolume = `#cloud-config
+fs_setup:
+   - label:  data
+     filesystem: 'ext4'
+     device: '/dev/xvdb'
+mounts:
+  - [ xvdb, /var/lib/docker, "ext4", "defaults", "0", "0" ]
+coreos:
+  units:
+    - name: format-datavolume.service
+      command: start
+      content: |
+        [Unit]
+        Description=Formats the data volume
+        After=dev-xvdb.device
+        Requires=dev-xvdb.device
+        ConditionPathExists=!/var/lib/docker.btrfs
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/sbin/mkfs.btrfs /dev/xvdb
+        ExecStart=/usr/bin/mkdir /var/lib/docker.btrfs
+    - name: var-lib-docker.mount
+      command: start
+      content: |
+        [Unit]
+        Description=Mount data volume to /var/lib/docker
+        Requires=format-datavolume.service
+        After=format-datavolume.service
+        [Mount]
+        What=/dev/xvdb
+        Where=/var/lib/docker
+        Type=btrfs
+    - name: docker.service
+      drop-ins:
+        - name: 10-wait-docker.conf
+          content: |
+            [Unit]
+            After=var-lib-docker.mount
+            Requires=var-lib-docker.mount
+`
 )
 
 type configError struct {
