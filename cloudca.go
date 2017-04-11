@@ -596,11 +596,11 @@ func (d *Driver) setNetwork(networkId string) error {
 	d.NetworkId = networkId
 
 	ccaClient := d.getClient()
-	tier, err := ccaClient.Tiers.Get(networkId)
+	network, err := ccaClient.Networks.Get(networkId)
 	if err != nil {
 		return err
 	}
-	d.VpcId = tier.VpcId
+	d.VpcId = network.VpcId
 
 	return nil
 }
