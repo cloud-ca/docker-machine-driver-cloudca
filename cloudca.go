@@ -91,6 +91,7 @@ type Driver struct {
 	MemoryInMb               string
 	NetworkId                string
 	VpcId                    string
+	RootDiskSizeInGb         string
 	AdditionalDiskOfferingId string
 	AdditionalDiskSizeGb     string
 	AdditionalDiskIops       string
@@ -141,6 +142,11 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Name:   "cloudca-memory-mb",
 			Usage:  "cloud.ca memory in MB for custom compute offerings",
 			EnvVar: "CLOUDCA_MEMORY_MB",
+		},
+		mcnflag.StringFlag{
+			Name:   "cloudca-root-disk-size-in-gb",
+			Usage:  "cloud.ca root disk size in GB (for resizable templates)",
+			EnvVar: "CLOUDCA_ROOT_DISK_SIZE_GB",
 		},
 		mcnflag.StringFlag{
 			Name:   "cloudca-additional-disk-offering",
@@ -222,6 +228,7 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	}
 	d.CpuCount = flags.String("cloudca-cpu-count")
 	d.MemoryInMb = flags.String("cloudca-memory-mb")
+	d.RootDiskSizeInGb = flags.String("cloudca-root-disk-size-in-gb")
 
 	if err := d.setNetwork(flags.String("cloudca-network-id")); err != nil {
 		return err
@@ -381,6 +388,10 @@ func (d *Driver) Create() error {
 	if d.MemoryInMb != "" {
 		memory, _ := strconv.Atoi(d.MemoryInMb)
 		instanceToCreate.MemoryInMB = memory
+	}
+	if d.RootDiskSizeInGb != "" {
+		rootDiskSizeInGb, _ := strconv.Atoi(d.RootDiskSizeInGb)
+		instanceToCreate.RootVolumeSizeInGb = rootDiskSizeInGb
 	}
 	if d.AdditionalDiskOfferingId != "" {
 		instanceToCreate.UserData = userDataToMountVolume

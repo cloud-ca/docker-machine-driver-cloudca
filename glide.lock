@@ -1,8 +1,8 @@
-hash: 9c4a7f399e81ca9ffdbaf82626bea9668eb3c8d025b63110c39088640f9f4b7f
-updated: 2017-04-11T11:08:15.061208815-04:00
+hash: 4b8425d2a5b7b3c56cf730430376f027fd48024bedd4c86e92d70ab0301bff4d
+updated: 2017-05-11T14:31:04.10302672-04:00
 imports:
 - name: github.com/cloud-ca/go-cloudca
-  version: 04ff238f38fb6774027017b5b4445566b06762c2
+  version: f04a8140725fbded4ec411fd1e857a96c2e9a00f
   subpackages:
   - api
   - configuration
@@ -13,7 +13,7 @@ imports:
   subpackages:
   - pkg/term
 - name: github.com/docker/machine
-  version: 15fd4c70403bab784d91031af02d9e169ce66412
+  version: 5b274558ea6ca822c06dd407a4e774a0105c3f60
   subpackages:
   - libmachine/drivers
   - libmachine/drivers/plugin
