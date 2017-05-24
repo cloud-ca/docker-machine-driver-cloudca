@@ -28,7 +28,7 @@ docker-machine create -d cloudca \
 ```
 **Notes:**
 * It is recommended to use Environment variables to store sensitive information like API keys. See the options below for the list of supported variables.
-* The cloud.ca instances have limited disk space on their root volumes. In order to get more disk space for your Docker machines, use the `--cloudca-additional-disk-offering` option to specify an additional volume that Docker will be able to use.
+* The cloud.ca instances have limited disk space on their root volumes. In order to get more disk space for your Docker machines, use the `--cloudca-root-disk-size-in-gb` if you have a resizable template or `--cloudca-additional-disk-offering` option to specify an additional volume that Docker will be able to use.
 
 ## Options
 
