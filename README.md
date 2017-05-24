@@ -40,6 +40,7 @@ docker-machine create -d cloudca \
 |``--cloudca-template``        |``CLOUDCA_TEMPLATE``        |cloud.ca template name or ID      |none      |yes|
 |``--cloudca-compute-offering``|``CLOUDCA_COMPUTE_OFFERING``|cloud.ca compute offering name or ID|none      |yes|
 |``--cloudca-network-id``      |``CLOUDCA_NETWORK_ID``      |cloud.ca network ID (where the machine will be deployed)|none     |yes|
+|``--cloudca-root-disk-size-in-gb``      |``CLOUDCA_ROOT_DISK_SIZE_IN_GB``      |cloud.ca root disk size in gb (for resizable templates) |size defined by template     |no|
 |``--cloudca-additional-disk-offering``|``CLOUDCA_ADDITIONAL_DISK_OFFERING``|cloud.ca additional disk offering name or ID to attach to the machine|none     |no|
 |``--cloudca-use-private-ip``  |``CLOUDCA_USE_PRIVATE_IP``  |Use a private IP to access the machine|false |no|
 |``--cloudca-ssh-user``        |``CLOUDCA_SSH_USER``        |cloud.ca SSH user|cca-user|no|
