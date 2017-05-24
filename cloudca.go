@@ -390,7 +390,10 @@ func (d *Driver) Create() error {
 		instanceToCreate.MemoryInMB = memory
 	}
 	if d.RootDiskSizeInGb != "" {
-		rootDiskSizeInGb, _ := strconv.Atoi(d.RootDiskSizeInGb)
+		rootDiskSizeInGb, err := strconv.Atoi(d.RootDiskSizeInGb)
+		if err != nil {
+			return err
+		}
 		instanceToCreate.RootVolumeSizeInGb = rootDiskSizeInGb
 	}
 	if d.AdditionalDiskOfferingId != "" {
