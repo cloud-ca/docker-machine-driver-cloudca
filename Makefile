@@ -35,5 +35,17 @@ build-all: clean
 
 clean:
 	rm -rf dist bin/docker-machine-driver-cloudca
-
+upload:
+	rm -f ./dist/docker-machine-driver-cloudca_${VERSION}_SWIFTURLS ;
+	SWIFT_ACCOUNT=`swift stat | grep Account: | sed s/Account:// | tr -d '[:space:]'` ; \
+	SWIFT_URL=https://objects-qc.cloud.ca/v1 ; \
+	SWIFT_CONTAINER=docker-machine-driver-cloudca ; \
+	for FILE in `ls ./dist | grep -i docker-machine.*\.zip` ; do \
+		echo "Uploading $$FILE to swift" ; \
+		swift upload $${SWIFT_CONTAINER} ./dist/$$FILE --object-name ${VERSION}/$$FILE ; \
+		echo "$${SWIFT_URL}/$${SWIFT_ACCOUNT}/$${SWIFT_CONTAINER}/${VERSION}/$$FILE" >> ./dist/docker-machine-driver-cloudca_${VERSION}_SWIFTURLS ; \
+	done
+release-notes: 
+	./release-notes.sh > ./dist/release.md ;
+release: build-all upload release-notes
 .PHONY: init build install build-all clean

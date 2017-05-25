@@ -23,12 +23,13 @@ docker-machine create -d cloudca \
    --cloudca-template "Ubuntu 16.04.01 HVM" \
    --cloudca-compute-offering "1vCPU.1GB" \
    --cloudca-network-id "bbefe8dd-bb3e-4f37-b467-b63f8334c15b" \
+   --cloudca-root-disk-size-in-gb 60 \
    --cloudca-additional-disk-offering "50GB - 50 IOPS Min." \
    test-machine1
 ```
 **Notes:**
 * It is recommended to use Environment variables to store sensitive information like API keys. See the options below for the list of supported variables.
-* The cloud.ca instances have limited disk space on their root volumes. In order to get more disk space for your Docker machines, use the `--cloudca-additional-disk-offering` option to specify an additional volume that Docker will be able to use.
+* The cloud.ca instances have limited disk space on their root volumes. In order to get more disk space for your Docker machines, use the `--cloudca-root-disk-size-in-gb` if you have a resizable template or `--cloudca-additional-disk-offering` option to specify an additional volume that Docker will be able to use.
 
 ## Options
 
@@ -40,6 +41,7 @@ docker-machine create -d cloudca \
 |``--cloudca-template``        |``CLOUDCA_TEMPLATE``        |cloud.ca template name or ID      |none      |yes|
 |``--cloudca-compute-offering``|``CLOUDCA_COMPUTE_OFFERING``|cloud.ca compute offering name or ID|none      |yes|
 |``--cloudca-network-id``      |``CLOUDCA_NETWORK_ID``      |cloud.ca network ID (where the machine will be deployed)|none     |yes|
+|``--cloudca-root-disk-size-in-gb``      |``CLOUDCA_ROOT_DISK_SIZE_IN_GB``      |cloud.ca root disk size in gb (for resizable templates) |size defined by template     |no|
 |``--cloudca-additional-disk-offering``|``CLOUDCA_ADDITIONAL_DISK_OFFERING``|cloud.ca additional disk offering name or ID to attach to the machine|none     |no|
 |``--cloudca-use-private-ip``  |``CLOUDCA_USE_PRIVATE_IP``  |Use a private IP to access the machine|false |no|
 |``--cloudca-ssh-user``        |``CLOUDCA_SSH_USER``        |cloud.ca SSH user|cca-user|no|
