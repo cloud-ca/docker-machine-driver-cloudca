@@ -23,7 +23,7 @@ docker-machine create -d cloudca \
    --cloudca-template "Ubuntu 16.04.01 HVM" \
    --cloudca-compute-offering "1vCPU.1GB" \
    --cloudca-network-id "bbefe8dd-bb3e-4f37-b467-b63f8334c15b" \
-   --cloudca-root-disk-size-in-gb "60" \
+   --cloudca-root-disk-size-in-gb 60 \
    --cloudca-additional-disk-offering "50GB - 50 IOPS Min." \
    test-machine1
 ```
