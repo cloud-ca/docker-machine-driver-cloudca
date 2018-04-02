@@ -372,6 +372,11 @@ func (d *Driver) Create() error {
 		return err
 	}
 
+	// !! Workaround for MC-7431.
+	key = strings.TrimSpace(key)
+	key += " docker-machine-workaround"
+	// !! End workaround for MC-7431.
+
 	instanceToCreate := cloudca.Instance{
 		Name:              d.MachineName,
 		ComputeOfferingId: d.ComputeOfferingId,
