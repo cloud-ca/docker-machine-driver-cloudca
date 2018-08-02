@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloud-ca/go-cloudca"
 	"github.com/cloud-ca/go-cloudca/api"
@@ -372,10 +373,10 @@ func (d *Driver) Create() error {
 		return err
 	}
 
-	// !! Workaround for MC-7431.
+	// !! Workaround for MC-7982.
 	key = strings.TrimSpace(key)
-	key = fmt.Sprintf("%s %s", key, d.MachineName)
-	// !! End workaround for MC-7431.
+	key = fmt.Sprintf("%s %s-%d", key, d.MachineName, time.Now().Unix())
+	// !! End workaround for MC-7982.
 
 	instanceToCreate := cloudca.Instance{
 		Name:              d.MachineName,
