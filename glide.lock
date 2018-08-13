@@ -1,5 +1,5 @@
 hash: e6b7f090140e81c7f6928331734c4dff8a3b3c3287f2f7973fab6f4eae92631c
-updated: 2017-05-24T16:45:21.478919549-04:00
+updated: 2018-04-02T08:57:37.070483-07:00
 imports:
 - name: github.com/cloud-ca/go-cloudca
   version: 21039f5a4375cdebddde9c7a0121ca6b5f56babb
@@ -13,7 +13,7 @@ imports:
   subpackages:
   - pkg/term
 - name: github.com/docker/machine
-  version: 5b274558ea6ca822c06dd407a4e774a0105c3f60
+  version: 15fd4c70403bab784d91031af02d9e169ce66412
   subpackages:
   - libmachine/drivers
   - libmachine/drivers/plugin
@@ -27,7 +27,7 @@ imports:
   - libmachine/version
   - version
 - name: github.com/mitchellh/gox
-  version: 54b619477e8932bbb6314644c867e7e6db7a9c71
+  version: c9740af9c6574448fd48eb30a71f964014c7a837
 - name: golang.org/x/crypto
   version: beef0f4390813b96e8e68fd78570396d0f4751fc
   subpackages:
