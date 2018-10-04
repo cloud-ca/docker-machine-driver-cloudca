@@ -416,6 +416,7 @@ func (d *Driver) Create() error {
 	}
 
 	d.Id = newInstance.Id
+	d.IPAddress = newInstance.IpAddress
 	d.PrivateIp = newInstance.IpAddress
 	d.PrivateIpId = newInstance.IpAddressId
 	d.setAdditionalVolumeId()
